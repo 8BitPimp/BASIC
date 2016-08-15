@@ -16,6 +16,7 @@ int main()
         func_builder_t b = func_builder_t(*func);
         // return value
         b.emit_const(1);
+        b.emit_return();
     }
 
     // main function
@@ -33,10 +34,8 @@ int main()
         b.emit_drop();
         // return value
         b.emit_null();
+        b.emit_return();
     }
-
-    // execute main
-    state.run("main");
 
     return 0;
 }

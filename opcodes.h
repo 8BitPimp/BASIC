@@ -29,5 +29,4 @@ enum bsc_opcode_t : uint8_t
     bsc_jge_e,		// (pop >= pop)
     bsc_jl_e,		// (pop <  pop)
     bsc_jle_e,		// (pop <= pop)
-    bsc_local_e		// (name index)
 };

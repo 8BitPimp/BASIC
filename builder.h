@@ -5,32 +5,12 @@
 #include <map>
 #include <memory>
 
-typedef void bsc_cfunc_t(struct bsc_state_t &);
+#include "buffer.h"
 
-struct bsc_buffer_t {
-    template <typename type_t>
-    void emit(const type_t in) {
-        emit(&in, sizeof(type_t));
-    }
-
-    template <typename type_t>
-    void patch(uint32_t offset, const type_t in) {
-        patch(offset, &in, sizeof(type_t));
-    }
-
-    uint32_t pos() const;
-
-protected:
-    uint32_t offset_;
-    std::unique_ptr<uint8_t> data_;
-
-    void reserve(uint32_t size);
-
-    void emit(const void * src, uint32_t size);
-    void patch(uint32_t offset, const void * src, uint32_t size);
-};
+typedef void (*bsc_cfunc_t)(struct bsc_state_t &);
 
 struct bsc_func_t {
+
     std::string name_;
     std::vector<std::string> strings_;
     std::vector<std::string> args_;
@@ -41,21 +21,19 @@ struct bsc_func_t {
 };
 
 struct bsc_state_t {
+
     std::map<std::string, bsc_func_t *> func_;
     std::map<std::string, bsc_cfunc_t > cfunc_;
 
     bsc_func_t * new_function(const std::string & name);
     void add_cfunction(const std::string & name, bsc_cfunc_t callback);
-
-    void run(const std::string & name);
 };
 
 struct bsc_label_t {
 
     bsc_label_t(bsc_func_t & func)
         : func_(func)
-        , address_(-1)
-    {
+        , address_(-1) {
     }
 
     uint32_t address_;
@@ -69,6 +47,9 @@ struct bsc_label_t {
 struct func_builder_t {
 
     func_builder_t(bsc_func_t & func);
+    ~func_builder_t() { finalize(); }
+    
+    void finalize();
 
     void add_arg    (const std::string & name);
     void add_local  (const std::string & name);
@@ -112,4 +93,167 @@ protected:
     std::vector<std::string> strings_;
     std::map<std::string, uint32_t> ident_;
     bsc_func_t & func_;
+};
+
+struct bsc_obj_t {
+
+	enum type_t	{
+		null,
+		integer,
+		string,
+		array,
+		function,
+	};
+
+	const type_t type_;
+
+	template <typename type_t>
+	const type_t & cast() const {
+		assert(type_t::type() == type_);
+		return *static_cast<type_t*>(this);
+	}
+
+	template <typename type_t>
+	type_t & cast() {
+		assert(type_t::type() == type_);
+		return *static_cast<type_t*>(this);
+	}
+
+	template <typename type_t>
+	const type_t * try_cast() const {
+		return (type_t::type() == type_) ?
+			*static_cast<type_t*>(this) :
+			nullptr;
+	}
+
+	template <typename type_t>
+	type_t * try_cast() {
+		return (type_t::type() == type_) ?
+			*static_cast<type_t*>(this) :
+			nullptr;
+	}
+
+    bsc_obj_t * copy();
+
+protected:
+	bsc_obj_t(type_t type)
+		: type_(type) {
+	}
+};
+
+struct bsc_obj_null_t
+	: public bsc_obj_t {
+
+	bsc_obj_null_t()
+		: bsc_obj_t(bsc_obj_t::null)
+	{
+	}
+
+	static bsc_obj_t::type_t type() {
+		return bsc_obj_t::null;
+	}
+};
+
+struct bsc_obj_integer_t
+	: public bsc_obj_t {
+    
+	bsc_obj_integer_t()
+		: bsc_obj_t(bsc_obj_t::integer)
+	{
+	}
+
+	int32_t value_;
+
+	static bsc_obj_t::type_t type() {
+		return bsc_obj_t::integer;
+	}
+};
+
+struct bsc_obj_string_t
+	: public bsc_obj_t {
+    
+	bsc_obj_string_t()
+		: bsc_obj_t(bsc_obj_t::string)
+	{
+	}
+
+	std::string string_;
+
+	static bsc_obj_t::type_t type() {
+		return bsc_obj_t::string;
+	}
+};
+
+struct bsc_obj_array_t
+	: public bsc_obj_t {
+    
+	bsc_obj_array_t()
+		: bsc_obj_t(bsc_obj_t::array)
+	{
+	}
+
+    std::vector<bsc_obj_t> element_;
+
+	static bsc_obj_t::type_t type() {
+		return bsc_obj_t::array;
+	}
+};
+
+struct bsc_obj_function_t
+	: public bsc_obj_t {
+    
+	bsc_obj_function_t()
+		: bsc_obj_t(bsc_obj_t::function)
+	{
+	}
+
+	std::string name_;
+	std::vector<std::string> args_;
+
+	static bsc_obj_t::type_t type() {
+		return bsc_obj_t::function;
+	}
+};
+
+struct bsc_frame_t {
+
+    bsc_frame_t(bsc_func_t & func);
+
+    bsc_reader_t reader_;
+    bsc_func_t & func_;
+    uint32_t sp_;
+
+    void set_local(const std::string & id, bsc_obj_t * obj);
+    bsc_obj_t * get_local(const std::string & id);
+
+protected:
+    std::map<std::string, std::unique_ptr<bsc_obj_t>> local_;
+};
+
+struct bsc_vm_t {
+
+    bsc_vm_t(bsc_state_t & state)
+        : state_(state) {
+    }
+
+    void run(const std::string & func);
+
+protected:
+
+    void pop(std::unique_ptr<bsc_obj_t> & out) {
+        out.reset(stack_.back());
+        stack_.pop_back();
+    }
+
+    void push(std::unique_ptr<bsc_obj_t> & out) {
+        stack_.push_back(out.release());
+    }
+
+    void do_call();
+
+    void step();
+
+    std::vector<bsc_obj_t*> stack_;
+    std::vector<bsc_frame_t> frame_;
+    bsc_state_t & state_;
 };
