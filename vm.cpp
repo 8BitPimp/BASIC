@@ -24,7 +24,23 @@ bsc_obj_t * bsc_frame_t::get_local(const std::string & id) {
 }
 
 bsc_obj_t * bsc_obj_t::copy() {
-    return nullptr;
+    switch (type_) {
+    case (bsc_obj_t::array):
+        // todo: copy elements in array?
+        // should arrays be by reference?
+        return new bsc_obj_array_t(this->cast<bsc_obj_array_t>());
+    case (bsc_obj_t::function):
+        return new bsc_obj_function_t(this->cast<bsc_obj_function_t>());
+    case (bsc_obj_t::integer):
+        return new bsc_obj_integer_t(this->cast<bsc_obj_integer_t>());
+    case (bsc_obj_t::null):
+        return new bsc_obj_null_t;
+    case (bsc_obj_t::string):
+        return new bsc_obj_string_t(this->cast<bsc_obj_string_t>());
+    default:
+        assert(!"unknown object type");
+        return nullptr;
+    }
 }
 
 void bsc_vm_t::run(const std::string & func) {
@@ -83,9 +99,14 @@ void bsc_vm_t::step() {
     case(bsc_call_e):
         do_call();
         break;
+
     case(bsc_iload_e): break;
     case(bsc_istore_e): break;
-    case(bsc_return_e): break;
+
+    case(bsc_return_e):
+        frame_.pop_back();
+        break;
+
     case(bsc_drop_e): {
             std::unique_ptr<bsc_obj_t> obj;
             pop(obj);
